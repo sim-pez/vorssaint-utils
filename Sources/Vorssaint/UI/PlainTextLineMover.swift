@@ -21,31 +21,49 @@ enum PlainTextLineMover {
         let full = text as NSString
         guard selection.location != NSNotFound, NSMaxRange(selection) <= full.length else { return nil }
         let block = full.lineRange(for: selection)
-        let offsetInBlock = selection.location - block.location
+        let blockPiece = piece(full, block)
+        let contentLength = (blockPiece.content as NSString).length
+        // Clamped so a selection that runs into the block's own terminator
+        // (fully, since a caller never splits one) is measured against the
+        // content alone; the terminator is tracked separately below.
+        let startOffset = min(selection.location - block.location, contentLength)
+        let endOffset = min(NSMaxRange(selection) - block.location, contentLength)
+        let selectedContentLength = endOffset - startOffset
+        // Whether the selection reached through the block's own terminator,
+        // as opposed to stopping at the end of its content.
+        let selectionIncludesTerminator = NSMaxRange(selection) - block.location > contentLength
 
         switch direction {
         case .up:
             guard block.location > 0 else { return nil }
             let above = full.lineRange(for: NSRange(location: block.location - 1, length: 0))
-            let blockPiece = piece(full, block)
             let abovePiece = piece(full, above)
             // The block's own terminator moves to the tail so a block that
             // used to end the text still ends it after trading places.
             let swapped = blockPiece.content + abovePiece.terminator + abovePiece.content + blockPiece.terminator
             let newText = full.substring(to: above.location) + swapped + full.substring(from: NSMaxRange(block))
-            let newStart = above.location + offsetInBlock
-            return (newText, NSRange(location: newStart, length: selection.length))
+            let newStart = above.location + startOffset
+            // The moved content is now followed by what used to separate it
+            // from "above", whose length may differ from the block's own
+            // terminator (a different line ending, or none at the tail).
+            let newTerminatorLength = selectionIncludesTerminator ? (abovePiece.terminator as NSString).length : 0
+            let newLength = selectedContentLength + newTerminatorLength
+            return (newText, NSRange(location: newStart, length: newLength))
 
         case .down:
             guard NSMaxRange(block) < full.length else { return nil }
             let below = full.lineRange(for: NSRange(location: NSMaxRange(block), length: 0))
-            let blockPiece = piece(full, block)
             let belowPiece = piece(full, below)
             let swapped = belowPiece.content + blockPiece.terminator + blockPiece.content + belowPiece.terminator
             let newText = full.substring(to: block.location) + swapped + full.substring(from: NSMaxRange(below))
             let newStart = block.location + (belowPiece.content as NSString).length
-                + (blockPiece.terminator as NSString).length + offsetInBlock
-            return (newText, NSRange(location: newStart, length: selection.length))
+                + (blockPiece.terminator as NSString).length + startOffset
+            // Same remapping as above, but here the moved content trades
+            // its terminator for what used to trail "below" it — possibly
+            // nothing, if the block now lands at the very end of the text.
+            let newTerminatorLength = selectionIncludesTerminator ? (belowPiece.terminator as NSString).length : 0
+            let newLength = selectedContentLength + newTerminatorLength
+            return (newText, NSRange(location: newStart, length: newLength))
         }
     }
 

@@ -125,6 +125,7 @@ struct PlainTextEditor: NSViewRepresentable {
             self.textView = textView
             lineMoveMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, let textView = self.textView,
+                      event.window === textView.window,
                       textView.window?.firstResponder === textView,
                       !textView.hasMarkedText(),
                       event.modifierFlags.intersection([.command, .option, .shift, .control]) == .option
